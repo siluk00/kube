@@ -21,7 +21,7 @@ type Task struct {
 	ID           uuid.UUID
 	Name         string
 	State        State
-	Image        int
+	Image        string
 	Memory       int
 	Disk         int
 	ExposedPorts nat.PortSet
