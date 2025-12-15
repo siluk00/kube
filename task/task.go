@@ -27,17 +27,17 @@ const (
 )
 
 type Task struct {
-	ID           uuid.UUID
-	Name         string
-	State        State
-	Image        string
-	Memory       int
-	Disk         int
-	ExposedPorts nat.PortSet
-	PortBindings map[string]string
-	RestarPolicy string
-	StartTime    time.Time
-	FinishTime   time.Time
+	ID            uuid.UUID
+	Name          string
+	State         State
+	Image         string
+	Memory        int
+	Disk          int
+	ExposedPorts  nat.PortSet
+	PortBindings  map[string]string
+	RestartPolicy string
+	StartTime     time.Time
+	FinishTime    time.Time
 }
 
 type TaskEvent struct {
@@ -48,18 +48,18 @@ type TaskEvent struct {
 }
 
 type Config struct {
-	Name         string
-	AttachStdin  bool
-	AttachStdout bool
-	AttachStderr bool
-	ExposedPorts nat.PortSet
-	Cmd          []string
-	Image        string
-	Cpu          float64
-	Memory       int64
-	Disk         int64
-	Env          []string
-	RestarPolicy string
+	Name          string
+	AttachStdin   bool
+	AttachStdout  bool
+	AttachStderr  bool
+	ExposedPorts  nat.PortSet
+	Cmd           []string
+	Image         string
+	Cpu           float64
+	Memory        int64
+	Disk          int64
+	Env           []string
+	RestartPolicy string
 }
 
 type Docker struct {
@@ -84,7 +84,7 @@ func (d *Docker) Run() DockerResult {
 	io.Copy(os.Stdout, reader)
 
 	rp := container.RestartPolicy{
-		Name: d.Config.RestarPolicy,
+		Name: d.Config.RestartPolicy,
 	}
 
 	r := container.Resources{
@@ -119,7 +119,10 @@ func (d *Docker) Run() DockerResult {
 
 	//d.Client.Runtime.ContainerId = resp.ID
 
-	out, err := d.Client.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	out, err := d.Client.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
 	if err != nil {
 		log.Printf("Error getting logs for container %s: %v\n", resp.ID, err)
 		return DockerResult{Error: err}
@@ -127,4 +130,24 @@ func (d *Docker) Run() DockerResult {
 	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
 
 	return DockerResult{ContainerId: resp.ID, Action: "start", Result: "success"}
+}
+
+func (d *Docker) Stop(id string) DockerResult {
+	log.Printf("Attempting to stop container %s.\n", id)
+	ctx := context.Background()
+	if err := d.Client.ContainerStop(ctx, id, nil); err != nil {
+		log.Printf("Error stoping container %%s: %v\n", id, err)
+		return DockerResult{Error: err}
+	}
+
+	if err := d.Client.ContainerRemove(ctx, id, types.ContainerRemoveOptions{
+		RemoveVolumes: true,
+		RemoveLinks:   false,
+		Force:         false,
+	}); err != nil {
+		log.Printf("Error removing containe%s: %v\n", id, err)
+		return DockerResult{Error: err}
+	}
+
+	return DockerResult{Action: "stop", Result: "success", Error: nil}
 }
