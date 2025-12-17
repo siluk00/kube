@@ -138,7 +138,7 @@ func (d *Docker) Stop(id string) DockerResult {
 	log.Printf("Attempting to stop container %s.\n", id)
 	ctx := context.Background()
 	if err := d.Client.ContainerStop(ctx, id, nil); err != nil {
-		log.Printf("Error stoping container %%s: %v\n", id, err)
+		log.Printf("Error stoping container %s: %v\n", id, err)
 		return DockerResult{Error: err}
 	}
 

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -21,12 +22,60 @@ func (w *Worker) CollectStats() {
 	fmt.Println("I will collect stats.")
 }
 
-func (w *Worker) RunTask() {
-	fmt.Println("I will start or stop a task.")
+func (w *Worker) AddTask(t task.Task) {
+	w.Queue.Enqueue(t)
 }
 
-func (w *Worker) StartTask() {
-	fmt.Println("I will start a task.")
+func (w *Worker) RunTask() task.DockerResult {
+	t := w.Queue.Dequeue()
+	if t == nil {
+		log.Println("No tasks in the queue")
+		return task.DockerResult{Error: nil}
+	}
+
+	taskQueued := t.(task.Task)
+
+	taskPersisted := w.Db[taskQueued.ID]
+	if taskPersisted == nil {
+		taskPersisted = &taskQueued
+		w.Db[taskQueued.ID] = &taskQueued
+	}
+
+	var result task.DockerResult
+	if ValidStateTransition(taskPersisted.State, taskQueued.State) {
+		switch taskQueued.State {
+		case task.Scheduled:
+			result = w.StartTask(taskQueued)
+		case task.Completed:
+			result = w.StopTask(taskQueued)
+		default:
+			result.Error = errors.New("we should not get here")
+		}
+	} else {
+		err := fmt.Errorf("invalid transition from %v to %v", taskPersisted.State, taskQueued.State)
+		result.Error = err
+	}
+	return result
+}
+
+func (w *Worker) StartTask(t task.Task) task.DockerResult {
+	t.StartTime = time.Now().UTC()
+	config := task.NewConfig(&t)
+	d := task.NewDocker(config)
+	result := d.Run()
+	if result.Error != nil {
+		log.Printf("Err running task %v: %v\n", t.ID, result.Error)
+		t.State = task.Failed
+		w.Db[t.ID] = &t
+		return result
+	}
+
+	t.ContainerID = result.ContainerId
+	t.State = task.Running
+	w.Db[t.ID] = &t
+
+	return result
+
 }
 func (w *Worker) StopTask(t task.Task) task.DockerResult {
 	config := task.NewConfig(&t)
@@ -42,4 +91,27 @@ func (w *Worker) StopTask(t task.Task) task.DockerResult {
 	log.Printf("Stopped and removed container %v for task %v\n", t.ContainerID, t.ID)
 
 	return result
+}
+
+var stateTransitionMap = map[task.State][]task.State{
+	task.Pending:   []task.State{task.Scheduled},
+	task.Scheduled: []task.State{task.Scheduled, task.Running, task.Failed},
+	task.Running:   []task.State{task.Running, task.Completed, task.Failed},
+	task.Completed: []task.State{},
+	task.Failed:    []task.State{},
+}
+
+func Contains(states []task.State, state task.State) bool {
+	for _, s := range states {
+		if s == state {
+			{
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ValidStateTransition(src task.State, dst task.State) bool {
+	return Contains(stateTransitionMap[src], dst)
 }
